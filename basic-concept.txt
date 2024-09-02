@@ -1,0 +1,94 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+
+const app = express();
+const PORT = 4943;
+
+const realizarSorteio = (users) => {
+  let shuffledUsers = [...users];
+  let sorteioValido = false;
+
+  while (!sorteioValido) {
+    sorteioValido = true;
+
+    for (let i = shuffledUsers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledUsers[i], shuffledUsers[j]] = [shuffledUsers[j], shuffledUsers[i]];
+    }
+
+    for (let i = 0; i < shuffledUsers.length; i++) {
+      const nextIndex = (i + 1) % shuffledUsers.length;
+      shuffledUsers[i].friend = shuffledUsers[nextIndex].username;
+
+      if (shuffledUsers[i].friend === shuffledUsers[i].username) {
+        sorteioValido = false;
+      }
+    }
+  }
+
+  return shuffledUsers;
+};
+
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/sortear', (req, res) => {
+
+  const usersPath = path.join(__dirname, 'users.json');
+  const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+
+  const sorteados = realizarSorteio(users);
+
+  fs.writeFileSync(usersPath, JSON.stringify(sorteados, null, 2));
+
+  sorteados.forEach((user) => {
+    axios.post(
+        'https://graph.facebook.com/v19.0/336126729578648/messages',
+        {
+          messaging_product: 'whatsapp',
+          to: `${user.phone}`,
+          type: 'template',
+          template: {
+            name: 'amigo_secreto',
+            language: { code: 'pt_PT' },
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  {
+                    type: 'text',
+                    text: `${user.username}`,
+                  },
+                  {
+                    type: 'text',
+                    text: `${user.friend}`,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          headers: {
+            'Authorization': 'Bearer BEARER_HERE',
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+      .then((response) => {
+        console.log('Mensagem enviada com sucesso:', response.data);
+      })
+      .catch((error) => {
+        console.error('Erro ao enviar mensagem:', error.message);
+      });
+  });
+
+
+  res.send('Boa sorte! Sorteados com sucesso e mensagens enviadas.');
+});
+
+app.listen(PORT, () => {
+  console.log(`Página do amigo secreto: http://localhost:${PORT}`);
+});
